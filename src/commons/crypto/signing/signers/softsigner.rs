@@ -14,9 +14,9 @@ use openssl::{
     rsa::Rsa,
 };
 use rpki::crypto::{
-    signer::{KeyError, SigningAlgorithm},
+    signer::KeyError,
     KeyIdentifier, PublicKey, PublicKeyFormat, RpkiSignature,
-    RpkiSignatureAlgorithm, Signature, SignatureAlgorithm, SigningError,
+    RpkiSignatureAlgorithm, Signature, SigningError,
 };
 use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
 use url::Url;
@@ -128,7 +128,6 @@ impl OpenSslSigner {
         let key_pair = self.load_key(&key_id)?;
         let signature = Self::sign_with_key(
             key_pair.pkey.as_ref(),
-            RpkiSignatureAlgorithm::default(),
             challenge,
         )?;
         Ok(signature)
@@ -167,24 +166,16 @@ impl OpenSslSigner {
         }
     }
 
-    fn sign_with_key<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    fn sign_with_key<D: AsRef<[u8]> + ?Sized>(
         pkey: &PKeyRef<Private>,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<Signature<Alg>, SignerError> {
-        let signing_algorithm = algorithm.signing_algorithm();
-        if !matches!(signing_algorithm, SigningAlgorithm::RsaSha256) {
-            return Err(SignerError::UnsupportedSigningAlg(
-                signing_algorithm,
-            ));
-        }
-
+    ) -> Result<RpkiSignature, SignerError> {
         let mut signer =
             ::openssl::sign::Signer::new(MessageDigest::sha256(), pkey)?;
         signer.update(data.as_ref())?;
 
         let signature =
-            Signature::new(algorithm, Bytes::from(signer.sign_to_vec()?));
+            Signature::new(RpkiSignatureAlgorithm::default(), Bytes::from(signer.sign_to_vec()?));
 
         Ok(signature)
     }
@@ -278,25 +269,23 @@ impl OpenSslSigner {
             .map_err(|_| KeyError::Signer(SignerError::KeyNotFound))
     }
 
-    pub fn sign<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    pub fn sign<D: AsRef<[u8]> + ?Sized>(
         &self,
         key_id: &KeyIdentifier,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<Signature<Alg>, SigningError<SignerError>> {
+    ) -> Result<RpkiSignature, SigningError<SignerError>> {
         let key_pair = self.load_key(key_id)?;
-        Self::sign_with_key(key_pair.pkey.as_ref(), algorithm, data)
+        Self::sign_with_key(key_pair.pkey.as_ref(), data)
             .map_err(SigningError::Signer)
     }
 
-    pub fn sign_one_off<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    pub fn sign_one_off<D: AsRef<[u8]> + ?Sized>(
         &self,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<(Signature<Alg>, PublicKey), SignerError> {
+    ) -> Result<(RpkiSignature, PublicKey), SignerError> {
         let kp = OpenSslKeyPair::build()?;
         let signature =
-            Self::sign_with_key(kp.pkey.as_ref(), algorithm, data)?;
+            Self::sign_with_key(kp.pkey.as_ref(), data)?;
         let key = kp.subject_public_key_info()?;
 
         Ok((signature, key))

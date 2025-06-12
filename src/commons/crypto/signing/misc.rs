@@ -3,7 +3,7 @@
 
 use rpki::{
     ca::{csr::RpkiCaCsr, provisioning::RequestResourceLimit},
-    crypto::{KeyIdentifier, PublicKey},
+    crypto::{KeyIdentifier, PublicKey, PublicKeyFormat, RpkiSignatureAlgorithm},
     repository::{
         cert::{KeyUsage, Overclaim, TbsCert},
         resources::ResourceSet,
@@ -16,7 +16,7 @@ use rpki::{
 use crate::{
     commons::{
         api::{IssuedCertificate, ReceivedCert},
-        crypto::KrillSigner,
+        crypto::{self, KrillSigner},
         error::Error,
         util::AllowedUri,
         KrillResult,
@@ -179,6 +179,13 @@ impl SignSupport {
         let serial = signer.random_serial()?;
         let issuer = signing_cert.subject().clone();
 
+        let signing_key = signer.get_key_info(&signing_cert.key_identifier())?;
+        let algorithm = match signing_key.algorithm() {
+            PublicKeyFormat::Rsa => Ok(RpkiSignatureAlgorithm::default()),
+            PublicKeyFormat::MlDsa65 => Ok(RpkiSignatureAlgorithm::MlDsa65),
+            PublicKeyFormat::EcdsaP256 => Err(crypto::Error::signing("unsupported algorithm")),
+        }?;
+
         let validity = match &request {
             CertRequest::Ca(_, validity) => *validity,
             CertRequest::Ee(_, validity) => *validity,
@@ -199,7 +206,8 @@ impl SignSupport {
         let overclaim = Overclaim::Refuse;
 
         let mut cert = TbsCert::new(
-            serial, issuer, validity, subject, pub_key, key_usage, overclaim,
+            serial, issuer, validity, subject, 
+            pub_key, key_usage, overclaim, algorithm
         );
 
         let asns = resources.to_as_resources();

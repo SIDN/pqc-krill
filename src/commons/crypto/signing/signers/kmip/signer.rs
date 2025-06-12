@@ -22,7 +22,7 @@ use rpki::{
     crypto::signer::KeyError,
     crypto::{
         KeyIdentifier, PublicKey, PublicKeyFormat, RpkiSignature,
-        RpkiSignatureAlgorithm, Signature, SignatureAlgorithm, SigningError,
+        RpkiSignatureAlgorithm, Signature, SigningError,
     },
 };
 
@@ -346,7 +346,6 @@ impl KmipSigner {
     ) -> Result<RpkiSignature, SignerError> {
         self.sign_with_key(
             signer_private_key_id,
-            RpkiSignatureAlgorithm::default(),
             challenge.as_ref(),
         )
     }
@@ -894,24 +893,16 @@ impl KmipSigner {
         }
     }
 
-    pub(super) fn sign_with_key<Alg: SignatureAlgorithm>(
+    pub(super) fn sign_with_key(
         &self,
         private_key_id: &str,
-        algorithm: Alg,
         data: &[u8],
-    ) -> Result<Signature<Alg>, SignerError> {
-        if algorithm.public_key_format() != PublicKeyFormat::Rsa {
-            return Err(SignerError::KmipError(format!(
-                "Algorithm '{:?}' not supported",
-                algorithm.public_key_format()
-            )));
-        }
-
+    ) -> Result<RpkiSignature, SignerError> {
         let signed =
             self.with_conn("sign", |conn| conn.sign(private_key_id, data))?;
 
         let sig =
-            Signature::new(algorithm, Bytes::from(signed.signature_data));
+            Signature::new(RpkiSignatureAlgorithm::default(), Bytes::from(signed.signature_data));
 
         Ok(sig)
     }
@@ -1047,16 +1038,15 @@ impl KmipSigner {
         res
     }
 
-    pub fn sign<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    pub fn sign<D: AsRef<[u8]> + ?Sized>(
         &self,
         key_id: &KeyIdentifier,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<Signature<Alg>, SigningError<SignerError>> {
+    ) -> Result<RpkiSignature, SigningError<SignerError>> {
         let kmip_key_pair_ids = self.lookup_kmip_key_ids(key_id)?;
 
         let signature = self
-            .sign_with_key(&kmip_key_pair_ids.private_key_id, algorithm, data.as_ref())
+            .sign_with_key(&kmip_key_pair_ids.private_key_id, data.as_ref())
             .map_err(|err| {
                 SigningError::Signer(SignerError::KmipError(format!(
                     "Signing data failed for Krill KeyIdentifier '{}' and KMIP private key id '{}': {}",
@@ -1067,11 +1057,10 @@ impl KmipSigner {
         Ok(signature)
     }
 
-    pub fn sign_one_off<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    pub fn sign_one_off<D: AsRef<[u8]> + ?Sized>(
         &self,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<(Signature<Alg>, PublicKey), SignerError> {
+    ) -> Result<(RpkiSignature, PublicKey), SignerError> {
         // TODO: Is it possible to use a KMIP batch request to implement the
         // create, activate, sign, deactivate, delete
         // in one round-trip to the server?
@@ -1081,7 +1070,6 @@ impl KmipSigner {
         let signature_res = self
             .sign_with_key(
                 &kmip_key_pair_ids.private_key_id,
-                algorithm,
                 data.as_ref(),
             )
             .map_err(|err| {

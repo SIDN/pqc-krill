@@ -8,7 +8,7 @@ use rpki::{
         idexchange::CaHandle, provisioning::ResourceClassName,
         publication::Base64,
     },
-    crypto::{DigestAlgorithm, KeyIdentifier},
+    crypto::{DigestAlgorithm, KeyIdentifier, PublicKeyFormat, RpkiSignatureAlgorithm},
     repository::{
         crl::{Crl, TbsCertList},
         manifest::{FileAndHash, Manifest, ManifestContent},
@@ -26,7 +26,7 @@ use crate::{
             rrdp::PublishElement, CertInfo, IssuedCertificate, ObjectName,
             ReceivedCert, RepositoryContact, Revocation, Revocations,
         },
-        crypto::KrillSigner,
+        crypto::{self, KrillSigner},
         error::Error,
         eventsourcing::{
             Key, KeyValueStore, PreSaveEventListener, Scope, Segment,
@@ -1507,8 +1507,14 @@ impl CrlBuilder {
     ) -> KrillResult<PublishedCrl> {
         let serial_number = Serial::from(revision.number);
 
+        let signature_algorithm = match signer.get_key_info(&aki)?.algorithm() {
+            PublicKeyFormat::Rsa => Ok(RpkiSignatureAlgorithm::default()),
+            PublicKeyFormat::MlDsa65 => Ok(RpkiSignatureAlgorithm::MlDsa65),
+            PublicKeyFormat::EcdsaP256 => Err(crypto::Error::signing("unsupported algorithm")),
+        }?;
+
         let crl = TbsCertList::new(
-            Default::default(),
+            signature_algorithm,
             issuer,
             revision.this_update,
             revision.next_update,

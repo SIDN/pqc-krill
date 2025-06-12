@@ -22,7 +22,7 @@ use rpki::{
     crypto::signer::KeyError,
     crypto::{
         KeyIdentifier, PublicKey, PublicKeyFormat, RpkiSignature,
-        RpkiSignatureAlgorithm, Signature, SignatureAlgorithm, SigningError,
+        RpkiSignatureAlgorithm, Signature, SigningError,
     },
 };
 use secrecy::ExposeSecret;
@@ -443,7 +443,6 @@ impl Pkcs11Signer {
             })?;
         self.sign_with_key(
             priv_handle,
-            RpkiSignatureAlgorithm::default(),
             challenge.as_ref(),
         )
     }
@@ -1072,19 +1071,11 @@ impl Pkcs11Signer {
         }
     }
 
-    pub(super) fn sign_with_key<Alg: SignatureAlgorithm>(
+    pub(super) fn sign_with_key(
         &self,
         private_key_handle: ObjectHandle,
-        algorithm: Alg,
         data: &[u8],
-    ) -> Result<Signature<Alg>, SignerError> {
-        if algorithm.public_key_format() != PublicKeyFormat::Rsa {
-            return Err(SignerError::KmipError(format!(
-                "Algorithm '{:?}' not supported",
-                algorithm.public_key_format()
-            )));
-        }
-
+    ) -> Result<RpkiSignature, SignerError> {
         let mechanism = Mechanism::Sha256RsaPkcs;
 
         // Note: The AWS CloudHSM Known Issues for the PKCS#11 Library states:
@@ -1112,7 +1103,7 @@ impl Pkcs11Signer {
             conn.sign(&mechanism, private_key_handle, data)
         })?;
 
-        let sig = Signature::new(algorithm, Bytes::from(signature_data));
+        let sig = Signature::new(RpkiSignatureAlgorithm::default(), Bytes::from(signature_data));
 
         Ok(sig)
     }
@@ -1270,12 +1261,11 @@ impl Pkcs11Signer {
         res
     }
 
-    pub fn sign<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    pub fn sign<D: AsRef<[u8]> + ?Sized>(
         &self,
         key_id: &KeyIdentifier,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<Signature<Alg>, SigningError<SignerError>> {
+    ) -> Result<RpkiSignature, SigningError<SignerError>> {
         let internal_key_id = self.lookup_key_id(key_id)?;
         let priv_handle = self
             .find_key(&internal_key_id, ObjectClass::PRIVATE_KEY)
@@ -1284,20 +1274,19 @@ impl Pkcs11Signer {
                 KeyError::Signer(err) => SigningError::Signer(err),
             })?;
 
-        self.sign_with_key(priv_handle, algorithm, data.as_ref())
+        self.sign_with_key(priv_handle, data.as_ref())
             .map_err(SigningError::Signer)
     }
 
-    pub fn sign_one_off<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    pub fn sign_one_off<D: AsRef<[u8]> + ?Sized>(
         &self,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<(Signature<Alg>, PublicKey), SignerError> {
+    ) -> Result<(RpkiSignature, PublicKey), SignerError> {
         let (key, pub_handle, priv_handle, _) =
             self.build_key(PublicKeyFormat::Rsa)?;
 
         let signature_res = self
-            .sign_with_key(priv_handle, algorithm, data.as_ref())
+            .sign_with_key(priv_handle, data.as_ref())
             .map_err(|err| {
                 SignerError::Pkcs11Error(format!(
                     "One-off signing of data failed: {}",

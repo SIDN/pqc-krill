@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use rpki::{
     ca::{csr::BgpsecCsr, publication::Base64},
-    crypto::PublicKey,
+    crypto::{PublicKey, PublicKeyFormat, RpkiSignatureAlgorithm},
     repository::{
         cert::{ExtendedKeyUsage, KeyUsage, Overclaim, TbsCert},
         resources::Asn,
@@ -14,7 +14,7 @@ use rpki::{
 use crate::{
     commons::{
         api::{BgpSecAsnKey, BgpSecCsrInfo, BgpSecCsrInfoList, ObjectName},
-        crypto::KrillSigner,
+        crypto::{self, KrillSigner},
         KrillResult,
     },
     daemon::config::{Config, IssuanceTimingConfig},
@@ -136,6 +136,16 @@ impl BgpSecCertificates {
     ) -> KrillResult<BgpSecCertInfo> {
         let serial_number = signer.random_serial()?;
 
+        let signing_key = certified_key.key_id();
+        let algorithm = match  signer.get_key_info(signing_key)?.algorithm() {
+            PublicKeyFormat::Rsa => Ok(RpkiSignatureAlgorithm::default()),
+            PublicKeyFormat::MlDsa65 => Ok(RpkiSignatureAlgorithm::MlDsa65),
+            // Even when signing a BGPsec Router Certificate, the issuer key and corresponding
+            // signature must use the RPKI algorithms. Only the subject and the Proof-of-Possession
+            // signature in the CSR are using the BGPsec algorithms.
+            PublicKeyFormat::EcdsaP256 => Err(crypto::Error::signing("unsupported algorithm")),
+        }?;
+
         let incoming_cert = certified_key.incoming_cert();
         let issuer = incoming_cert.subject().clone();
         let crl_uri = incoming_cert.crl_uri();
@@ -158,6 +168,7 @@ impl BgpSecCertificates {
             public_key,
             KeyUsage::Ee,
             Overclaim::Refuse,
+            algorithm,
         );
 
         router_cert
@@ -165,9 +176,7 @@ impl BgpSecCertificates {
         router_cert.set_authority_key_identifier(Some(aki));
         router_cert.set_ca_issuer(Some(aia));
         router_cert.set_crl_uri(Some(crl_uri));
-        router_cert.build_as_resource_blocks(|b| b.push(asn));
-
-        let signing_key = certified_key.key_id();
+        router_cert.build_as_resource_blocks(|b| b.push(asn));        
 
         let cert = signer.sign_cert(router_cert, signing_key)?;
 

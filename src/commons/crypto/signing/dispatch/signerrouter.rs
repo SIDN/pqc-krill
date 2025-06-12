@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use std::{collections::HashMap, sync::RwLock};
 
+use rpki::crypto::RpkiSignature;
 use rpki::crypto::{
-    signer::KeyError, KeyIdentifier, PublicKey, PublicKeyFormat, Signature,
-    SignatureAlgorithm, Signer, SigningError,
+    signer::KeyError, KeyIdentifier, PublicKey, PublicKeyFormat, Signer, SigningError,
 };
 
 use crate::commons::{
@@ -762,24 +762,22 @@ impl Signer for SignerRouter {
         self.get_signer_for_key(key_id)?.destroy_key(key_id)
     }
 
-    fn sign<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    fn sign<D: AsRef<[u8]> + ?Sized>(
         &self,
         key_id: &KeyIdentifier,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<Signature<Alg>, SigningError<Self::Error>> {
+    ) -> Result<RpkiSignature, SigningError<Self::Error>> {
         self.bind_ready_signers();
         self.get_signer_for_key(key_id)?
-            .sign(key_id, algorithm, data)
+            .sign(key_id, data)
     }
 
-    fn sign_one_off<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    fn sign_one_off<D: AsRef<[u8]> + ?Sized>(
         &self,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<(Signature<Alg>, PublicKey), Self::Error> {
+    ) -> Result<(RpkiSignature, PublicKey), Self::Error> {
         self.bind_ready_signers();
-        self.one_off_signer.sign_one_off(algorithm, data)
+        self.one_off_signer.sign_one_off(data)
     }
 
     fn rand(&self, target: &mut [u8]) -> Result<(), Self::Error> {
@@ -790,8 +788,6 @@ impl Signer for SignerRouter {
 
 #[cfg(all(test, feature = "hsm"))]
 pub mod tests {
-    use rpki::crypto::RpkiSignatureAlgorithm;
-
     use crate::{
         commons::crypto::{
             dispatch::signerprovider::SignerFlags,
@@ -821,9 +817,6 @@ pub mod tests {
     #[test]
     pub fn verify_that_a_usable_signer_is_registered_and_can_be_used() {
         test::test_in_memory(|storage_uri| {
-            #[allow(non_snake_case)]
-            let DEF_SIG_ALG = RpkiSignatureAlgorithm::default();
-
             // Build a mock signer that is contactable and usable for the
             // SignerRouter
             let call_counts = Arc::new(MockSignerCallCounts::new());
@@ -898,7 +891,7 @@ pub mod tests {
             // discover from the SignerMapper that the key belongs to the mock
             // signer and so dispatch the signing request to the
             // mock signer.
-            router.sign(&key_identifier, DEF_SIG_ALG, &out_buf).unwrap();
+            router.sign(&key_identifier, &out_buf).unwrap();
             assert_eq!(1, call_counts.get(FnIdx::Sign));
 
             // Throw the SignerRouter away and create a new one. This is like
@@ -918,7 +911,7 @@ pub mod tests {
             // records and only ask the signer to sign the registration
             // challenge, but not ask it to create a registration
             // key.
-            router.sign(&key_identifier, DEF_SIG_ALG, &out_buf).unwrap();
+            router.sign(&key_identifier, &out_buf).unwrap();
             assert_eq!(1, call_counts.get(FnIdx::CreateRegistrationKey));
             assert_eq!(2, call_counts.get(FnIdx::SignRegistrationChallenge));
             assert_eq!(2, call_counts.get(FnIdx::GetInfo));
@@ -932,7 +925,6 @@ pub mod tests {
 
             let err = router.sign(
                 &key_identifier,
-                RpkiSignatureAlgorithm::default(),
                 &out_buf,
             );
             // TODO: Should this error from the SignerRouter actually be
@@ -957,7 +949,7 @@ pub mod tests {
             // it thinks it still has an active signer.
             let key_identifier =
                 router.create_key(PublicKeyFormat::Rsa).unwrap();
-            router.sign(&key_identifier, DEF_SIG_ALG, &out_buf).unwrap();
+            router.sign(&key_identifier, &out_buf).unwrap();
 
             assert_eq!(1, call_counts.get(FnIdx::CreateRegistrationKey));
             assert_eq!(2, call_counts.get(FnIdx::SignRegistrationChallenge));
@@ -981,7 +973,7 @@ pub mod tests {
             let router =
                 create_signer_router(&[mock_signer], signer_mapper.clone());
 
-            let err = router.sign(&key_identifier, DEF_SIG_ALG, &out_buf);
+            let err = router.sign(&key_identifier, &out_buf);
             assert!(matches!(
                 err,
                 Err(SigningError::Signer(SignerError::KeyNotFound))

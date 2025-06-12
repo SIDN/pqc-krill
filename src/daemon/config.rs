@@ -24,7 +24,7 @@ use syslog::Facility;
 use crate::{
     commons::{
         api::{PublicationServerUris, Token},
-        crypto::{OpenSslSignerConfig, SignSupport},
+        crypto::{OQSSignerConfig, OpenSslSignerConfig, SignSupport},
         error::{Error, KrillIoError},
         eventsourcing::KeyValueStore,
         util::ext_serde,
@@ -2020,6 +2020,9 @@ pub enum SignerType {
     #[serde(alias = "OpenSSL")]
     OpenSsl(OpenSslSignerConfig),
 
+    #[serde(alias = "OQS")]
+    OQS(OQSSignerConfig),
+
     #[cfg(feature = "hsm")]
     #[serde(alias = "PKCS#11")]
     Pkcs11(Pkcs11SignerConfig),
@@ -2033,6 +2036,8 @@ impl std::fmt::Display for SignerType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SignerType::OpenSsl(_) => f.write_str("OpenSSL"),
+
+            SignerType::OQS(_) => f.write_str("OQS"),
 
             #[cfg(feature = "hsm")]
             SignerType::Pkcs11(_) => f.write_str("PKCS#11"),

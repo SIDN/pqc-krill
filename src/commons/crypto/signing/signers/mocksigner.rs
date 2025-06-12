@@ -13,8 +13,8 @@ use openssl::{
 use rpki::{
     crypto::signer::KeyError,
     crypto::{
-        signer::SigningAlgorithm, KeyIdentifier, PublicKey, PublicKeyFormat,
-        RpkiSignature, RpkiSignatureAlgorithm, Signature, SignatureAlgorithm,
+        KeyIdentifier, PublicKey, PublicKeyFormat,
+        RpkiSignature, RpkiSignatureAlgorithm, Signature,
         SigningError,
     },
 };
@@ -143,23 +143,16 @@ impl MockSigner {
         Ok((public_key, pkey, key_identifier, internal_id))
     }
 
-    fn sign_with_key<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
-        alg: Alg,
+    fn sign_with_key<D: AsRef<[u8]> + ?Sized>(
         pkey: &PKey<Private>,
         challenge: &D,
-    ) -> Result<Signature<Alg>, SignerError> {
-        let signing_algorithm = alg.signing_algorithm();
-
-        if !matches!(signing_algorithm, SigningAlgorithm::RsaSha256) {
-            Err(SignerError::UnsupportedSigningAlg(signing_algorithm))
-        } else {
-            let mut signer =
-                ::openssl::sign::Signer::new(MessageDigest::sha256(), pkey)?;
-            signer.update(challenge.as_ref())?;
-            let signature =
-                Signature::new(alg, Bytes::from(signer.sign_to_vec()?));
-            Ok(signature)
-        }
+    ) -> Result<RpkiSignature, SignerError> {
+        let mut signer =
+            ::openssl::sign::Signer::new(MessageDigest::sha256(), pkey)?;
+        signer.update(challenge.as_ref())?;
+        let signature =
+            Signature::new(RpkiSignatureAlgorithm::default(), Bytes::from(signer.sign_to_vec()?));
+        Ok(signature)
     }
 
     fn public_key_from_pkey(
@@ -216,7 +209,6 @@ impl MockSigner {
 
         // sign the given data using the loaded private key
         let signature = Self::sign_with_key(
-            RpkiSignatureAlgorithm::default(),
             &pkey,
             challenge,
         )?;
@@ -300,30 +292,28 @@ impl MockSigner {
         Ok(())
     }
 
-    pub fn sign<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    pub fn sign<D: AsRef<[u8]> + ?Sized>(
         &self,
         key_identifier: &KeyIdentifier,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<Signature<Alg>, SigningError<SignerError>> {
+    ) -> Result<RpkiSignature, SigningError<SignerError>> {
         self.inc_fn_call_count(FnIdx::Sign);
         let internal_id =
             self.internal_id_from_key_identifier(key_identifier)?;
         let pkey = self
             .load_key(&internal_id)
             .ok_or(SignerError::KeyNotFound)?;
-        Self::sign_with_key(algorithm, &pkey, data)
+        Self::sign_with_key(&pkey, data)
             .map_err(SigningError::Signer)
     }
 
-    pub fn sign_one_off<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    pub fn sign_one_off<D: AsRef<[u8]> + ?Sized>(
         &self,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<(Signature<Alg>, PublicKey), SignerError> {
+    ) -> Result<(RpkiSignature, PublicKey), SignerError> {
         self.inc_fn_call_count(FnIdx::SignOneOff);
         let (public_key, pkey, _, internal_id) = self.build_key().unwrap();
-        let signature = Self::sign_with_key(algorithm, &pkey, data).unwrap();
+        let signature = Self::sign_with_key(&pkey, data).unwrap();
         let _ = self.keys.write().unwrap().remove(&internal_id);
         Ok((signature, public_key))
     }

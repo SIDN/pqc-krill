@@ -16,7 +16,7 @@ use rpki::{
             self, IssuanceResponse, RequestResourceLimit, RevocationResponse,
         },
     },
-    crypto::KeyIdentifier,
+    crypto::{KeyIdentifier, PublicKeyFormat, RpkiSignatureAlgorithm},
     repository::{
         cert::{KeyUsage, Overclaim, TbsCert},
         resources::ResourceSet,
@@ -29,7 +29,7 @@ use crate::{
     commons::{
         actor::Actor,
         api::{IdCertInfo, ObjectName, ReceivedCert},
-        crypto::{CsrInfo, KrillSigner, SignSupport},
+        crypto::{self, CsrInfo, KrillSigner, SignSupport},
         error::Error,
         eventsourcing::{
             self, Event, InitCommandDetails, InitEvent, WithStorableDetails,
@@ -402,6 +402,12 @@ impl TrustAnchorSigner {
             let pub_key = signer.get_key_info(&key).map_err(Error::signer)?;
             let name = pub_key.to_subject_name();
 
+            let algorithm = match pub_key.algorithm() {
+                PublicKeyFormat::Rsa => Ok(RpkiSignatureAlgorithm::default()),
+                PublicKeyFormat::MlDsa65 => Ok(RpkiSignatureAlgorithm::MlDsa65),
+                PublicKeyFormat::EcdsaP256 => Err(crypto::Error::signing("unsupported algorithm")),
+            }?;
+
             let mut cert = TbsCert::new(
                 serial,
                 name.clone(),
@@ -410,6 +416,7 @@ impl TrustAnchorSigner {
                 pub_key.clone(),
                 KeyUsage::Ca,
                 Overclaim::Refuse,
+                algorithm,
             );
 
             cert.set_basic_ca(Some(true));

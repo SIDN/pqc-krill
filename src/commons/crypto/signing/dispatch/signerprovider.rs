@@ -1,12 +1,11 @@
 use rpki::crypto::{
-    signer::{KeyError, SigningAlgorithm},
-    KeyIdentifier, PublicKey, PublicKeyFormat, RpkiSignature, Signature,
-    SignatureAlgorithm, SigningError,
+    signer::KeyError,
+    KeyIdentifier, PublicKey, PublicKeyFormat, RpkiSignature,
+    SigningError,
 };
 
 use crate::commons::crypto::{
-    signers::{error::SignerError, softsigner::OpenSslSigner},
-    SignerHandle,
+    signers::{error::SignerError, softsigner::OpenSslSigner}, OQSSigner, SignerHandle
 };
 
 #[cfg(all(test, feature = "hsm"))]
@@ -68,6 +67,8 @@ impl SignerFlags {
 pub enum SignerProvider {
     OpenSsl(SignerFlags, OpenSslSigner),
 
+    OQS(SignerFlags, OQSSigner),
+
     #[cfg(feature = "hsm")]
     Kmip(SignerFlags, KmipSigner),
 
@@ -82,6 +83,7 @@ impl SignerProvider {
     pub fn is_default_signer(&self) -> bool {
         match self {
             SignerProvider::OpenSsl(flags, _) => flags.is_default_signer,
+            SignerProvider::OQS(flags, _) => flags.is_default_signer,
             #[cfg(feature = "hsm")]
             SignerProvider::Kmip(flags, _) => flags.is_default_signer,
             #[cfg(feature = "hsm")]
@@ -94,6 +96,7 @@ impl SignerProvider {
     pub fn is_one_off_signer(&self) -> bool {
         match self {
             SignerProvider::OpenSsl(flags, _) => flags.is_one_off_signer,
+            SignerProvider::OQS(flags, _) => flags.is_one_off_signer,
             #[cfg(feature = "hsm")]
             SignerProvider::Kmip(flags, _) => flags.is_one_off_signer,
             #[cfg(feature = "hsm")]
@@ -108,6 +111,9 @@ impl SignerProvider {
     ) -> Result<(PublicKey, String), SignerError> {
         match self {
             SignerProvider::OpenSsl(_, signer) => {
+                signer.create_registration_key()
+            }
+            SignerProvider::OQS(_, signer) => {
                 signer.create_registration_key()
             }
             #[cfg(feature = "hsm")]
@@ -136,6 +142,11 @@ impl SignerProvider {
                     signer_private_key_id,
                     challenge,
                 ),
+            SignerProvider::OQS(_, signer) => signer
+                .sign_registration_challenge(
+                    signer_private_key_id,
+                    challenge,
+                ),
             #[cfg(feature = "hsm")]
             SignerProvider::Kmip(_, signer) => signer
                 .sign_registration_challenge(
@@ -160,6 +171,7 @@ impl SignerProvider {
     pub fn set_handle(&self, handle: SignerHandle) {
         match self {
             SignerProvider::OpenSsl(_, signer) => signer.set_handle(handle),
+            SignerProvider::OQS(_, signer) => signer.set_handle(handle),
             #[cfg(feature = "hsm")]
             SignerProvider::Kmip(_, signer) => signer.set_handle(handle),
             #[cfg(feature = "hsm")]
@@ -172,6 +184,7 @@ impl SignerProvider {
     pub fn get_name(&self) -> &str {
         match self {
             SignerProvider::OpenSsl(_, signer) => signer.get_name(),
+            SignerProvider::OQS(_, signer) => signer.get_name(),
             #[cfg(feature = "hsm")]
             SignerProvider::Kmip(_, signer) => signer.get_name(),
             #[cfg(feature = "hsm")]
@@ -184,6 +197,7 @@ impl SignerProvider {
     pub fn get_info(&self) -> Option<String> {
         match self {
             SignerProvider::OpenSsl(_, signer) => signer.get_info(),
+            SignerProvider::OQS(_, signer) => signer.get_info(),
             #[cfg(feature = "hsm")]
             SignerProvider::Kmip(_, signer) => signer.get_info(),
             #[cfg(feature = "hsm")]
@@ -213,6 +227,7 @@ impl SignerProvider {
             SignerProvider::OpenSsl(_, signer) => {
                 signer.create_key(algorithm)
             }
+            SignerProvider::OQS(_, signer) => signer.create_key(algorithm),
             #[cfg(feature = "hsm")]
             SignerProvider::Kmip(_, signer) => signer.create_key(algorithm),
             #[cfg(feature = "hsm")]
@@ -230,6 +245,9 @@ impl SignerProvider {
     ) -> Result<KeyIdentifier, SignerError> {
         match self {
             SignerProvider::OpenSsl(_, signer) => signer.import_key(pem),
+            SignerProvider::OQS(_, _) => Err(SignerError::other(
+                "import key not supported for the OQS signer",
+            )),
             #[cfg(feature = "hsm")]
             SignerProvider::Kmip(_, _) => Err(SignerError::other(
                 "import key not supported for KMIP signers",
@@ -251,6 +269,7 @@ impl SignerProvider {
     ) -> Result<PublicKey, KeyError<SignerError>> {
         match self {
             SignerProvider::OpenSsl(_, signer) => signer.get_key_info(key),
+            SignerProvider::OQS(_, signer) => signer.get_key_info(key),
             #[cfg(feature = "hsm")]
             SignerProvider::Kmip(_, signer) => signer.get_key_info(key),
             #[cfg(feature = "hsm")]
@@ -266,6 +285,7 @@ impl SignerProvider {
     ) -> Result<(), KeyError<SignerError>> {
         match self {
             SignerProvider::OpenSsl(_, signer) => signer.destroy_key(key),
+            SignerProvider::OQS(_, signer) => signer.destroy_key(key),
             #[cfg(feature = "hsm")]
             SignerProvider::Kmip(_, signer) => signer.destroy_key(key),
             #[cfg(feature = "hsm")]
@@ -275,66 +295,55 @@ impl SignerProvider {
         }
     }
 
-    pub fn sign<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    pub fn sign<D: AsRef<[u8]> + ?Sized>(
         &self,
         key: &KeyIdentifier,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<Signature<Alg>, SigningError<SignerError>> {
-        let signing_algorithm = algorithm.signing_algorithm();
-        if !matches!(signing_algorithm, SigningAlgorithm::RsaSha256) {
-            return Err(SignerError::UnsupportedSigningAlg(
-                signing_algorithm,
-            )
-            .into());
-        }
-
+    ) -> Result<RpkiSignature, SigningError<SignerError>> {
         match self {
             SignerProvider::OpenSsl(_, signer) => {
-                signer.sign(key, algorithm, data)
+                signer.sign(key, data)
+            }
+            SignerProvider::OQS(_, signer) => {
+                signer.sign(key, data)
             }
             #[cfg(feature = "hsm")]
             SignerProvider::Kmip(_, signer) => {
-                signer.sign(key, algorithm, data)
+                signer.sign(key, data)
             }
             #[cfg(feature = "hsm")]
             SignerProvider::Pkcs11(_, signer) => {
-                signer.sign(key, algorithm, data)
+                signer.sign(key, data)
             }
             #[cfg(all(test, feature = "hsm"))]
             SignerProvider::Mock(_, signer) => {
-                signer.sign(key, algorithm, data)
+                signer.sign(key, data)
             }
         }
     }
 
-    pub fn sign_one_off<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    pub fn sign_one_off<D: AsRef<[u8]> + ?Sized>(
         &self,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<(Signature<Alg>, PublicKey), SignerError> {
-        let signing_algorithm = algorithm.signing_algorithm();
-        if !matches!(signing_algorithm, SigningAlgorithm::RsaSha256) {
-            return Err(SignerError::UnsupportedSigningAlg(
-                signing_algorithm,
-            ));
-        }
-
+    ) -> Result<(RpkiSignature, PublicKey), SignerError> {
         match self {
             SignerProvider::OpenSsl(_, signer) => {
-                signer.sign_one_off(algorithm, data)
+                signer.sign_one_off(data)
             }
+            SignerProvider::OQS(_, signer) => {
+                signer.sign_one_off(data)
+            },
             #[cfg(feature = "hsm")]
             SignerProvider::Kmip(_, signer) => {
-                signer.sign_one_off(algorithm, data)
+                signer.sign_one_off(data)
             }
             #[cfg(feature = "hsm")]
             SignerProvider::Pkcs11(_, signer) => {
-                signer.sign_one_off(algorithm, data)
+                signer.sign_one_off(data)
             }
             #[cfg(all(test, feature = "hsm"))]
             SignerProvider::Mock(_, signer) => {
-                signer.sign_one_off(algorithm, data)
+                signer.sign_one_off(data)
             }
         }
     }

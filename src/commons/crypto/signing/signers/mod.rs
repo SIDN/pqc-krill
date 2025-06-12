@@ -8,6 +8,8 @@ pub mod pkcs11;
 
 pub mod softsigner;
 
+pub mod oqssigner;
+
 #[cfg(feature = "hsm")]
 pub mod probe;
 

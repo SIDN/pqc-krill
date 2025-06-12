@@ -13,8 +13,7 @@ use openssl::{
 use rpki::{
     ca::idcert::IdCert,
     crypto::{
-        signer::SigningAlgorithm, KeyIdentifier, PublicKey, Signature,
-        SignatureAlgorithm,
+        KeyIdentifier, PublicKey, RpkiSignature, RpkiSignatureAlgorithm, Signature
     },
     repository::x509::{Time, Validity},
 };
@@ -92,21 +91,19 @@ impl rpki::crypto::Signer for HttpsSigner {
         unimplemented!("not needed in this context")
     }
 
-    fn sign<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    fn sign<D: AsRef<[u8]> + ?Sized>(
         &self,
         _key: &Self::KeyId,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<Signature<Alg>, rpki::crypto::SigningError<Self::Error>> {
-        self.sign(algorithm, data)
+    ) -> Result<RpkiSignature, rpki::crypto::SigningError<Self::Error>> {
+        self.sign(data)
             .map_err(rpki::crypto::SigningError::Signer)
     }
 
-    fn sign_one_off<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    fn sign_one_off<D: AsRef<[u8]> + ?Sized>(
         &self,
-        _algorithm: Alg,
         _data: &D,
-    ) -> Result<(Signature<Alg>, PublicKey), Self::Error> {
+    ) -> Result<(RpkiSignature, PublicKey), Self::Error> {
         unimplemented!("not needed in this context")
     }
 
@@ -143,18 +140,11 @@ impl HttpsSigner {
     }
 
     // See OpenSslSigner::sign_with_key for reference.
-    fn sign<Alg: SignatureAlgorithm, D: AsRef<[u8]> + ?Sized>(
+    fn sign<D: AsRef<[u8]> + ?Sized>(
         &self,
-        algorithm: Alg,
         data: &D,
-    ) -> Result<Signature<Alg>, Error> {
-        let signing_algorithm = algorithm.signing_algorithm();
-        if !matches!(signing_algorithm, SigningAlgorithm::RsaSha256) {
-            return Err(Error::SignerError(
-                "Only RSA SHA256 signing is supported.".to_string(),
-            ));
-        }
-
+    ) -> Result<RpkiSignature, Error> {
+        debug!("Signing with HttpsSigner");
         let mut signer = ::openssl::sign::Signer::new(
             MessageDigest::sha256(),
             &self.private,
@@ -162,7 +152,7 @@ impl HttpsSigner {
         signer.update(data.as_ref())?;
 
         let signature =
-            Signature::new(algorithm, Bytes::from(signer.sign_to_vec()?));
+            Signature::new(RpkiSignatureAlgorithm::default(), Bytes::from(signer.sign_to_vec()?));
         Ok(signature)
     }
 
