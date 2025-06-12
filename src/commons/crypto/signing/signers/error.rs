@@ -61,6 +61,9 @@ impl fmt::Display for SignerError {
                     SigningAlgorithm::MlDsa65 => {
                         write!(f, "Signing with MlDsa65 not supported")
                     }
+                    SigningAlgorithm::FnDsa512 => {
+                        write!(f, "Signing with FnDsa512 not supported")
+                    }
                 }
             }
         }

@@ -1510,6 +1510,7 @@ impl CrlBuilder {
         let signature_algorithm = match signer.get_key_info(&aki)?.algorithm() {
             PublicKeyFormat::Rsa => Ok(RpkiSignatureAlgorithm::default()),
             PublicKeyFormat::MlDsa65 => Ok(RpkiSignatureAlgorithm::MlDsa65),
+            PublicKeyFormat::FnDsa512 => Ok(RpkiSignatureAlgorithm::FnDsa512),
             PublicKeyFormat::EcdsaP256 => Err(crypto::Error::signing("unsupported algorithm")),
         }?;
 

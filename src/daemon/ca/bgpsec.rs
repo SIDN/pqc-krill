@@ -140,6 +140,7 @@ impl BgpSecCertificates {
         let algorithm = match  signer.get_key_info(signing_key)?.algorithm() {
             PublicKeyFormat::Rsa => Ok(RpkiSignatureAlgorithm::default()),
             PublicKeyFormat::MlDsa65 => Ok(RpkiSignatureAlgorithm::MlDsa65),
+            PublicKeyFormat::FnDsa512 => Ok(RpkiSignatureAlgorithm::FnDsa512),
             // Even when signing a BGPsec Router Certificate, the issuer key and corresponding
             // signature must use the RPKI algorithms. Only the subject and the Proof-of-Possession
             // signature in the CSR are using the BGPsec algorithms.

@@ -126,7 +126,7 @@ impl OQSSigner {
     }
 
     fn build_key(&self) -> Result<KeyIdentifier, SignerError> {
-        let kp = OQSKeyPair::new(PublicKeyFormat::MlDsa65).map_err(SignerError::other)?;
+        let kp = OQSKeyPair::new(PublicKeyFormat::FnDsa512).map_err(SignerError::other)?;
         self.store_key(kp)
     }
 
@@ -231,7 +231,7 @@ impl OQSSigner {
         &self,
         data: &D,
     ) -> Result<(RpkiSignature, PublicKey), SignerError> {
-        let kp = OQSKeyPair::new(PublicKeyFormat::MlDsa65)
+        let kp = OQSKeyPair::new(PublicKeyFormat::FnDsa512)
             .map_err(SignerError::other)?;
         let signature = kp.sign(data.as_ref())
             .map_err(|e| SignerError::other(e))?;
@@ -245,7 +245,7 @@ impl OQSSigner {
 //------------ OQSKeyPair ------------------------------------------------
 
 pub struct OQSKeyPair {
-    alg: oqs::sig::Algorithm,
+    algorithm: PublicKeyFormat,
     pkey: oqs::sig::PublicKey,
     skey: oqs::sig::SecretKey,
 }
@@ -253,28 +253,44 @@ pub struct OQSKeyPair {
 impl OQSKeyPair {
     fn new(algorithm: PublicKeyFormat) -> Result<Self, oqs::Error> {
         match algorithm {
+            PublicKeyFormat::FnDsa512 => {
+                let sigalg = oqs::sig::Sig::new(oqs::sig::Algorithm::Falcon512)?;
+                let (pkey, skey) = sigalg.keypair()?;
+                Ok(OQSKeyPair { pkey, skey, algorithm })
+            }
             PublicKeyFormat::MlDsa65 => {
                 let sigalg = oqs::sig::Sig::new(oqs::sig::Algorithm::MlDsa65)?;
                 let (pkey, skey) = sigalg.keypair()?;
-                Ok(OQSKeyPair { pkey, skey, alg: oqs::sig::Algorithm::MlDsa65 })
+                Ok(OQSKeyPair { pkey, skey, algorithm })
             }
             _ => Err(oqs::Error::AlgorithmDisabled)
         }
-        
     }
 
     fn sign(
         &self,
         data: &[u8]
     ) -> Result<RpkiSignature, oqs::Error> {
-        let sigalg = oqs::sig::Sig::new(self.alg)?;
+        let alg = match self.algorithm {
+            PublicKeyFormat::FnDsa512 => oqs::sig::Algorithm::Falcon512,
+            PublicKeyFormat::MlDsa65 => oqs::sig::Algorithm::MlDsa65,
+            _ => return Err(oqs::Error::AlgorithmDisabled)
+        };
+        let sigalg = oqs::sig::Sig::new(alg)?;
         let sig = sigalg.sign(data, &self.skey)?;
-        Ok(Signature::new(RpkiSignatureAlgorithm::MlDsa65, sig.into_vec().into()))
+        Ok(Signature::new(match self.algorithm {
+            PublicKeyFormat::FnDsa512 => RpkiSignatureAlgorithm::FnDsa512,
+            PublicKeyFormat::MlDsa65 => RpkiSignatureAlgorithm::MlDsa65,
+            _ => unreachable!()
+        }, sig.into_vec().into()))
     }
 
     fn get_key_info(&self) -> Result<PublicKey, oqs::Error> {
-        match self.alg {
-            oqs::sig::Algorithm::MlDsa65 => {
+        match self.algorithm {
+            PublicKeyFormat::FnDsa512 => {
+                Ok(PublicKey::fndsa512_from_bytes(self.pkey.clone().into_vec().into()))
+            }
+            PublicKeyFormat::MlDsa65 => {
                 Ok(PublicKey::mldsa65_from_bytes(self.pkey.clone().into_vec().into()))
             }
             _ => Err(oqs::Error::AlgorithmDisabled)
@@ -291,26 +307,24 @@ impl OQSKeyPair {
         cons: &mut decode::Constructed<S>
     ) -> Result<Self, DecodeError<S::Error>> {
         cons.take_sequence(|cons| {
-            let alg = PublicKeyFormat::take_from(cons)?;
-            match alg {
-                PublicKeyFormat::MlDsa65 => {
-                    let sigalg = oqs::sig::Sig::new(oqs::sig::Algorithm::MlDsa65)
-                        .map_err(|_| cons.content_err("unsupported algorithm"))?;
+            let algorithm = PublicKeyFormat::take_from(cons)?;
+            let sigalg = match algorithm {
+                PublicKeyFormat::MlDsa65 => oqs::sig::Sig::new(oqs::sig::Algorithm::MlDsa65),
+                PublicKeyFormat::FnDsa512 => oqs::sig::Sig::new(oqs::sig::Algorithm::Falcon512),
+                _ => Err(oqs::Error::AlgorithmDisabled),
+            }.map_err(|_| cons.content_err("unsupported algorithm"))?;
 
-                    let skey = sigalg.secret_key_from_bytes(
-                        &OctetString::take_from(cons)?.into_bytes()
-                    ).ok_or(cons.content_err("invalid secret key"))?.to_owned();
+            let skey = sigalg.secret_key_from_bytes(
+                &OctetString::take_from(cons)?.into_bytes()
+            ).ok_or(cons.content_err("invalid secret key"))?.to_owned();
 
-                    let pkey = sigalg.public_key_from_bytes(
-                        &OctetString::take_from(cons)?.into_bytes()
-                    ).ok_or(cons.content_err("invalid public key"))?.to_owned();
+            let pkey = sigalg.public_key_from_bytes(
+                &OctetString::take_from(cons)?.into_bytes()
+            ).ok_or(cons.content_err("invalid public key"))?.to_owned();
 
-                    // We do not check whether the public key  
-                    // corresponds to the private key.
-                    Ok(OQSKeyPair { pkey, skey, alg: oqs::sig::Algorithm::MlDsa65 })
-                }
-                _ => Err(cons.content_err("unsupported algorithm"))
-            }
+            // We do not check whether the public key  
+            // corresponds to the private key.
+            Ok(OQSKeyPair { pkey, skey, algorithm })
         })
     }
 
@@ -331,7 +345,8 @@ impl Serialize for OQSKeyPair {
     {
         // We encode the keypair into a custom format because the OQS library does not
         // support generating an expanded keypair from the seed or generating the public
-        // key from the secret key or seed.
+        // key from the secret key or seed. 
+        // Standardization of such a format has not finished yet.
         // The custom format is:
         //
         // OQSKeyPair ::= SEQUENCE {
@@ -342,12 +357,7 @@ impl Serialize for OQSKeyPair {
         let der = encode::Constructed::new(
             Tag::SEQUENCE, 
             (
-                {
-                    match self.alg {
-                        oqs::sig::Algorithm::MlDsa65 => PublicKeyFormat::MlDsa65.encode(),
-                        _ => unreachable!()
-                    }
-                },
+                self.algorithm.encode(),
                 OctetString::new(self.skey.clone().into_vec().into()).encode(),
                 OctetString::new(self.pkey.clone().into_vec().into()).encode()
             ),
