@@ -14,8 +14,7 @@ use openssl::{
     rsa::Rsa,
 };
 use rpki::crypto::{
-    signer::KeyError,
-    KeyIdentifier, PublicKey, PublicKeyFormat, RpkiSignature,
+    signer::KeyError, KeyIdentifier, PublicKey, RpkiSignature, 
     RpkiSignatureAlgorithm, Signature, SigningError,
 };
 use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
@@ -228,10 +227,7 @@ impl OpenSslSigner {
 // `SignerProvider` expects to invoke them, but as the dispatching is not
 // trait based we don't actually have to implement the `Signer` trait.
 impl OpenSslSigner {
-    pub fn create_key(
-        &self,
-        _algorithm: PublicKeyFormat,
-    ) -> Result<KeyIdentifier, SignerError> {
+    pub fn create_key(&self) -> Result<KeyIdentifier, SignerError> {
         let key_id = self.build_key()?;
         self.remember_key_id(&key_id)?;
 
@@ -380,7 +376,7 @@ pub mod tests {
     fn should_return_subject_public_key_info() {
         test::test_in_memory(|storage_uri| {
             let s = OpenSslSigner::build(storage_uri, "dummy", None).unwrap();
-            let ki = s.create_key(PublicKeyFormat::Rsa).unwrap();
+            let ki = s.create_key().unwrap();
             s.get_key_info(&ki).unwrap();
             s.destroy_key(&ki).unwrap();
         })

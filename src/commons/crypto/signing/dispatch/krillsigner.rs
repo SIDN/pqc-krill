@@ -10,7 +10,7 @@ use rpki::{
         sigmsg::SignedMessage,
     },
     crypto::{
-        KeyIdentifier, PublicKey, PublicKeyFormat, RpkiSignature, Signer,
+        KeyIdentifier, PublicKey, RpkiSignature, Signer,
     },
     repository::{
         aspa::{Aspa, AspaBuilder},
@@ -30,11 +30,13 @@ use crate::{
     commons::{
         api::ObjectName,
         crypto::{
-            self, dispatch::{
+            self,
+            dispatch::{
                 signerinfo::SignerMapper,
                 signerprovider::{SignerFlags, SignerProvider},
                 signerrouter::SignerRouter,
-            }, CryptoResult, OQSSigner, OpenSslSigner, SignSupport
+            },
+            CryptoResult, OQSSigner, OpenSslSigner, SignSupport,
         },
         error::Error,
         KrillResult,
@@ -222,9 +224,7 @@ impl KrillSigner {
     }
 
     pub fn create_key(&self) -> CryptoResult<KeyIdentifier> {
-        self.router
-            .create_key(PublicKeyFormat::Rsa)
-            .map_err(crypto::Error::signer)
+        self.router.create_key().map_err(crypto::Error::signer)
     }
 
     pub fn import_key(&self, pem: &str) -> CryptoResult<KeyIdentifier> {
@@ -478,8 +478,7 @@ fn signer_builder(
         SignerType::OQS(conf) => {
             let storage_uri =
                 conf.keys_storage_uri.as_ref().unwrap_or(storage_uri);
-            let signer =
-                OQSSigner::build(storage_uri, name, mapper.clone())?;
+            let signer = OQSSigner::build(storage_uri, name, mapper.clone())?;
             Ok(SignerProvider::OQS(flags, signer))
         }
         #[cfg(feature = "hsm")]

@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::RwLock};
 
 use rpki::crypto::RpkiSignature;
 use rpki::crypto::{
-    signer::KeyError, KeyIdentifier, PublicKey, PublicKeyFormat, Signer, SigningError,
+    signer::KeyError, KeyIdentifier, PublicKey, Signer, SigningError,
 };
 
 use crate::commons::{
@@ -738,12 +738,22 @@ impl Signer for SignerRouter {
     type KeyId = KeyIdentifier;
     type Error = SignerError;
 
-    fn create_key(
-        &self,
-        algorithm: PublicKeyFormat,
-    ) -> Result<Self::KeyId, Self::Error> {
+    fn create_key(&self) -> Result<Self::KeyId, Self::Error> {
+        // If we wanted configuration to be able to pick specific
+        // signers/algs for different purposes, that could be done here.
+        //
+        // However, we configure the algorithm strictly within the default signer:
+        // - there is 1 default signer
+        // - the default signer has 1 preferred algorithm.
+        //
+        // `create_key()` will always make a key for that 1 default algorithm.
+        // Previous keys from a different algorithm can still be used,
+        // either from another signer that made them, or from the default signer
+        // if that one supports multiple algorithms (such as a future OpenSSL/HSM
+        // once those have FN-DSA).
+
         self.bind_ready_signers();
-        self.default_signer.create_key(algorithm)
+        self.default_signer.create_key()
     }
 
     fn get_key_info(
@@ -879,8 +889,7 @@ pub mod tests {
             // Check that we can create a new key with the mock signer via the
             // SignerRouter and that the key gets registered with
             // the signer mapper.
-            let key_identifier =
-                router.create_key(PublicKeyFormat::Rsa).unwrap();
+            let key_identifier = router.create_key().unwrap();
             assert!(signer_mapper
                 .get_signer_for_key(&key_identifier)
                 .is_ok());
@@ -947,8 +956,7 @@ pub mod tests {
             // The mock signer still works for the moment because the
             // SignerRouter doesn't do registration again as
             // it thinks it still has an active signer.
-            let key_identifier =
-                router.create_key(PublicKeyFormat::Rsa).unwrap();
+            let key_identifier = router.create_key().unwrap();
             router.sign(&key_identifier, &out_buf).unwrap();
 
             assert_eq!(1, call_counts.get(FnIdx::CreateRegistrationKey));

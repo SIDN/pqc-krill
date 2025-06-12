@@ -21,7 +21,7 @@ use r2d2::PooledConnection;
 use rpki::{
     crypto::signer::KeyError,
     crypto::{
-        KeyIdentifier, PublicKey, PublicKeyFormat, RpkiSignature,
+        KeyIdentifier, PublicKey, RpkiSignature,
         RpkiSignatureAlgorithm, Signature, SigningError,
     },
 };
@@ -334,7 +334,7 @@ impl KmipSigner {
         &self,
     ) -> Result<(PublicKey, String), SignerError> {
         let (public_key, kmip_key_pair_ids) =
-            self.build_key(PublicKeyFormat::Rsa)?;
+            self.build_key()?;
         let internal_key_id = kmip_key_pair_ids.private_key_id;
         Ok((public_key, internal_key_id))
     }
@@ -701,18 +701,10 @@ impl KmipSigner {
     /// it ready for use by Krill.
     pub(super) fn build_key(
         &self,
-        algorithm: PublicKeyFormat,
     ) -> Result<(PublicKey, KmipKeyPairIds), SignerError> {
         // https://tools.ietf.org/html/rfc6485#section-3: Asymmetric Key Pair Formats
         //   "The RSA key pairs used to compute the signatures MUST have a
         // 2048-bit    modulus and a public exponent (e) of 65,537."
-
-        if !matches!(algorithm, PublicKeyFormat::Rsa) {
-            return Err(SignerError::KmipError(format!(
-                "Algorithm {:?} not supported while creating key",
-                &algorithm
-            )));
-        }
 
         // Give keys a Krill specific but random name initially. Once we have
         // created them we can determine the SHA-1 of their X.509
@@ -980,11 +972,8 @@ impl KmipSigner {
 // trait based we don't actually have to implement the `Signer` trait.
 
 impl KmipSigner {
-    pub fn create_key(
-        &self,
-        algorithm: PublicKeyFormat,
-    ) -> Result<KeyIdentifier, SignerError> {
-        let (key, kmip_key_pair_ids) = self.build_key(algorithm)?;
+    pub fn create_key(&self) -> Result<KeyIdentifier, SignerError> {
+        let (key, kmip_key_pair_ids) = self.build_key()?;
         let key_id = key.key_identifier();
         self.remember_kmip_key_ids(&key_id, kmip_key_pair_ids)?;
         Ok(key_id)
@@ -1065,7 +1054,7 @@ impl KmipSigner {
         // create, activate, sign, deactivate, delete
         // in one round-trip to the server?
         let (key, kmip_key_pair_ids) =
-            self.build_key(PublicKeyFormat::Rsa)?;
+            self.build_key()?;
 
         let signature_res = self
             .sign_with_key(

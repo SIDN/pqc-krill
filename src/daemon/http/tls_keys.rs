@@ -69,10 +69,7 @@ impl rpki::crypto::Signer for HttpsSigner {
     type KeyId = KeyIdentifier;
     type Error = Error;
 
-    fn create_key(
-        &self,
-        _algorithm: rpki::crypto::PublicKeyFormat,
-    ) -> Result<Self::KeyId, Self::Error> {
+    fn create_key(&self) -> Result<Self::KeyId, Self::Error> {
         unimplemented!("not needed in this context")
     }
 

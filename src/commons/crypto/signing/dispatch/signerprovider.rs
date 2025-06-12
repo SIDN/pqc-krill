@@ -1,6 +1,6 @@
 use rpki::crypto::{
     signer::KeyError,
-    KeyIdentifier, PublicKey, PublicKeyFormat, RpkiSignature,
+    KeyIdentifier, PublicKey, RpkiSignature,
     SigningError,
 };
 
@@ -221,19 +221,18 @@ impl SignerProvider {
 impl SignerProvider {
     pub fn create_key(
         &self,
-        algorithm: PublicKeyFormat,
     ) -> Result<KeyIdentifier, SignerError> {
         match self {
             SignerProvider::OpenSsl(_, signer) => {
-                signer.create_key(algorithm)
+                signer.create_key()
             }
-            SignerProvider::OQS(_, signer) => signer.create_key(algorithm),
+            SignerProvider::OQS(_, signer) => signer.create_key(),
             #[cfg(feature = "hsm")]
-            SignerProvider::Kmip(_, signer) => signer.create_key(algorithm),
+            SignerProvider::Kmip(_, signer) => signer.create_key(),
             #[cfg(feature = "hsm")]
-            SignerProvider::Pkcs11(_, signer) => signer.create_key(algorithm),
+            SignerProvider::Pkcs11(_, signer) => signer.create_key(),
             #[cfg(all(test, feature = "hsm"))]
-            SignerProvider::Mock(_, signer) => signer.create_key(algorithm),
+            SignerProvider::Mock(_, signer) => signer.create_key(),
         }
     }
 

@@ -21,7 +21,7 @@ use cryptoki::{
 use rpki::{
     crypto::signer::KeyError,
     crypto::{
-        KeyIdentifier, PublicKey, PublicKeyFormat, RpkiSignature,
+        KeyIdentifier, PublicKey, RpkiSignature,
         RpkiSignatureAlgorithm, Signature, SigningError,
     },
 };
@@ -406,7 +406,7 @@ impl Pkcs11Signer {
     pub fn create_registration_key(
         &self,
     ) -> Result<(PublicKey, String), SignerError> {
-        match self.build_key_internal(PublicKeyFormat::Rsa) {
+        match self.build_key_internal() {
             Ok((public_key, _, _, internal_key_id)) => {
                 Ok((public_key, internal_key_id))
             }
@@ -933,15 +933,13 @@ impl Pkcs11Signer {
 
     pub(super) fn build_key(
         &self,
-        algorithm: PublicKeyFormat,
     ) -> Result<(PublicKey, ObjectHandle, ObjectHandle, String), SignerError>
     {
-        Ok(self.build_key_internal(algorithm)?)
+        Ok(self.build_key_internal()?)
     }
 
     fn build_key_internal(
         &self,
-        algorithm: PublicKeyFormat,
     ) -> Result<
         (PublicKey, ObjectHandle, ObjectHandle, String),
         InternalConnError,
@@ -949,13 +947,6 @@ impl Pkcs11Signer {
         // https://tools.ietf.org/html/rfc6485#section-3: Asymmetric Key Pair Formats
         //   "The RSA key pairs used to compute the signatures MUST have a
         // 2048-bit    modulus and a public exponent (e) of 65,537."
-
-        if !matches!(algorithm, PublicKeyFormat::Rsa) {
-            return Err(SignerError::Pkcs11Error(format!(
-                "Algorithm {:?} not supported while creating key",
-                &algorithm
-            )))?;
-        }
 
         let mech = Mechanism::RsaPkcsKeyPairGen;
 
@@ -1171,11 +1162,8 @@ impl Pkcs11Signer {
 // trait based we don't actually have to implement the `Signer` trait.
 
 impl Pkcs11Signer {
-    pub fn create_key(
-        &self,
-        algorithm: PublicKeyFormat,
-    ) -> Result<KeyIdentifier, SignerError> {
-        let (key, _, _, internal_key_id) = self.build_key(algorithm)?;
+    pub fn create_key(&self) -> Result<KeyIdentifier, SignerError> {
+        let (key, _, _, internal_key_id) = self.build_key()?;
         let key_id = key.key_identifier();
         self.remember_key_id(&key_id, internal_key_id)?;
         Ok(key_id)
@@ -1283,7 +1271,7 @@ impl Pkcs11Signer {
         data: &D,
     ) -> Result<(RpkiSignature, PublicKey), SignerError> {
         let (key, pub_handle, priv_handle, _) =
-            self.build_key(PublicKeyFormat::Rsa)?;
+            self.build_key()?;
 
         let signature_res = self
             .sign_with_key(priv_handle, data.as_ref())

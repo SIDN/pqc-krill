@@ -2353,8 +2353,6 @@ impl fmt::Display for RtaPrepResponse {
 mod test {
     use bytes::Bytes;
 
-    use rpki::crypto::PublicKeyFormat;
-
     use crate::{
         commons::crypto::OpenSslSigner, ta::TrustAnchorLocator, test,
     };
@@ -2384,7 +2382,7 @@ mod test {
         test::test_in_memory(|storage_uri| {
             let signer =
                 OpenSslSigner::build(storage_uri, "dummy", None).unwrap();
-            let key_id = signer.create_key(PublicKeyFormat::Rsa).unwrap();
+            let key_id = signer.create_key().unwrap();
             let pub_key = signer.get_key_info(&key_id).unwrap();
 
             let mft_uri = info().resolve(

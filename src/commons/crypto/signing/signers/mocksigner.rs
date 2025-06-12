@@ -13,9 +13,8 @@ use openssl::{
 use rpki::{
     crypto::signer::KeyError,
     crypto::{
-        KeyIdentifier, PublicKey, PublicKeyFormat,
-        RpkiSignature, RpkiSignatureAlgorithm, Signature,
-        SigningError,
+        KeyIdentifier, PublicKey, RpkiSignature,
+        RpkiSignatureAlgorithm, Signature, SigningError,
     },
 };
 
@@ -239,10 +238,7 @@ impl MockSigner {
 // `SignerProvider` expects to invoke them, but as the dispatching is not
 // trait based we don't actually have to implement the `Signer` trait.
 impl MockSigner {
-    pub fn create_key(
-        &self,
-        _algorithm: PublicKeyFormat,
-    ) -> Result<KeyIdentifier, SignerError> {
+    pub fn create_key(&self) -> Result<KeyIdentifier, SignerError> {
         self.inc_fn_call_count(FnIdx::CreateKey);
         let (_, _, key_identifier, internal_id) = self.build_key().unwrap();
 
@@ -303,8 +299,7 @@ impl MockSigner {
         let pkey = self
             .load_key(&internal_id)
             .ok_or(SignerError::KeyNotFound)?;
-        Self::sign_with_key(&pkey, data)
-            .map_err(SigningError::Signer)
+        Self::sign_with_key(&pkey, data).map_err(SigningError::Signer)
     }
 
     pub fn sign_one_off<D: AsRef<[u8]> + ?Sized>(

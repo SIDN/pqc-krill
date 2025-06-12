@@ -189,8 +189,7 @@ impl OQSSigner {
 // trait based we don't actually have to implement the `Signer` trait.
 impl OQSSigner {
     pub fn create_key(
-        &self,
-        _algorithm: PublicKeyFormat,
+        &self
     ) -> Result<KeyIdentifier, SignerError> {
 
         let key_id = self.build_key()?;
