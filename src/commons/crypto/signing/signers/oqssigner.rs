@@ -7,6 +7,7 @@ use std::{
 
 use base64::engine::general_purpose::STANDARD as BASE64_ENGINE;
 use base64::engine::Engine as _;
+use kvx::{namespace, Namespace};
 use rpki::{crypto::{
     signer::KeyError,
     KeyIdentifier, PublicKey, PublicKeyFormat, RpkiSignature,
@@ -15,15 +16,12 @@ use rpki::{crypto::{
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use url::Url;
 
-use crate::{
-    commons::{
-        crypto::{
-            dispatch::signerinfo::SignerMapper, signers::error::SignerError,
-            SignerHandle,
-        },
-        eventsourcing::{Key, KeyValueStore, Segment, SegmentExt},
+use crate::commons::{
+    crypto::{
+        dispatch::signerinfo::SignerMapper, signers::error::SignerError,
+        SignerHandle,
     },
-    constants::KEYS_NS,
+    eventsourcing::{Key, KeyValueStore, Segment, SegmentExt},
 };
 
 //------------ OQSSigner -------------------------------------------------
@@ -116,11 +114,13 @@ impl OQSSigner {
     }
 }
 
+pub const OQS_KEYS_NS: &Namespace = namespace!("oqs_keys");
+
 impl OQSSigner {
     fn init_keys_store(
         storage_uri: &Url,
     ) -> Result<KeyValueStore, SignerError> {
-        let store = KeyValueStore::create(storage_uri, KEYS_NS)
+        let store = KeyValueStore::create(storage_uri, OQS_KEYS_NS)
             .map_err(|_| SignerError::InvalidStorage(storage_uri.clone()))?;
         Ok(store)
     }
